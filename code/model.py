@@ -40,7 +40,7 @@ class INCEPTION_V3(nn.Module):
         x = nn.Upsample(size=(299, 299), mode='bilinear')(x)
         # 299 x 299 x 3
         x = self.model(x)
-        x = nn.Softmax()(x)
+        x = nn.Softmax(dim=1)(x)
         return x
 
 

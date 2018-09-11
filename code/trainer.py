@@ -16,8 +16,7 @@ from copy import deepcopy
 from miscc.config import cfg
 from miscc.utils import mkdir_p
 
-from tensorboard import summary
-from tensorboard import FileWriter
+from tensorboardX import SummaryWriter
 
 from model import G_NET, D_NET64, D_NET128, D_NET256, D_NET512, D_NET1024, INCEPTION_V3
 
@@ -56,12 +55,12 @@ def KL_loss(mu, logvar):
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
-        nn.init.orthogonal(m.weight.data, 1.0)
+        nn.init.orthogonal_(m.weight.data, 1.0)
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
     elif classname.find('Linear') != -1:
-        nn.init.orthogonal(m.weight.data, 1.0)
+        nn.init.orthogonal_(m.weight.data, 1.0)
         if m.bias is not None:
             m.bias.data.fill_(0.0)
 
@@ -199,12 +198,14 @@ def save_img_results(imgs_tcpu, fake_imgs, num_imgs,
     vutils.save_image(
         real_img, '%s/real_samples.png' % (image_dir),
         normalize=True)
-    real_img_set = vutils.make_grid(real_img).numpy()
-    real_img_set = np.transpose(real_img_set, (1, 2, 0))
-    real_img_set = real_img_set * 255
-    real_img_set = real_img_set.astype(np.uint8)
-    sup_real_img = summary.image('real_img', real_img_set)
-    summary_writer.add_summary(sup_real_img, count)
+    # real_img_set = vutils.make_grid(real_img).numpy()
+    # real_img_set = np.transpose(real_img_set, (1, 2, 0))
+    # real_img_set = real_img_set * 255
+    # real_img_set = real_img_set.astype(np.uint8)
+    # sup_real_img = summary.image('real_img', real_img_set)
+    # summary_writer.add_summary(sup_real_img, count)
+    summary_writer.add_image(tag="real_img", img_tensor=vutils.make_grid(real_img, normalize=True), global_step=count)
+
 
     for i in range(num_imgs):
         fake_img = fake_imgs[i][0:num]
@@ -214,15 +215,7 @@ def save_img_results(imgs_tcpu, fake_imgs, num_imgs,
             fake_img.data, '%s/count_%09d_fake_samples%d.png' %
             (image_dir, count, i), normalize=True)
 
-        fake_img_set = vutils.make_grid(fake_img.data).cpu().numpy()
-
-        fake_img_set = np.transpose(fake_img_set, (1, 2, 0))
-        fake_img_set = (fake_img_set + 1) * 255 / 2
-        fake_img_set = fake_img_set.astype(np.uint8)
-
-        sup_fake_img = summary.image('fake_img%d' % i, fake_img_set)
-        summary_writer.add_summary(sup_fake_img, count)
-        summary_writer.flush()
+        summary_writer.add_image(tag="fake_{:d}_img".format(i), img_tensor=vutils.make_grid(fake_img, normalize=True), global_step=count)
 
 
 # ################## For uncondional tasks ######################### #
@@ -235,7 +228,7 @@ class GANTrainer(object):
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
             mkdir_p(self.log_dir)
-            self.summary_writer = FileWriter(self.log_dir)
+            self.summary_writer = SummaryWriter(self.log_dir)
 
         s_gpus = cfg.GPU_ID.split(',')
         self.gpus = [int(ix) for ix in s_gpus]
@@ -287,8 +280,8 @@ class GANTrainer(object):
         optD.step()
         # log
         if flag == 0:
-            summary_D = summary.scalar('D_loss%d' % idx, errD.data[0])
-            self.summary_writer.add_summary(summary_D, count)
+            self.summary_writer.add_scalar('D_loss%d' % idx, errD, count)
+            
         return errD
 
     def train_Gnet(self, count):
@@ -306,8 +299,7 @@ class GANTrainer(object):
             # errG = self.stage_coeff[i] * errG
             errG_total = errG_total + errG
             if flag == 0:
-                summary_G = summary.scalar('G_loss%d' % i, errG.data[0])
-                self.summary_writer.add_summary(summary_G, count)
+                self.summary_writer.add_scalar('G_loss%d' % i, errG, count)
 
         # Compute color preserve losses
         if cfg.TRAIN.COEFF.COLOR_LOSS > 0:
@@ -329,15 +321,11 @@ class GANTrainer(object):
                 errG_total = errG_total + like_mu1 + like_cov1
 
             if flag == 0:
-                sum_mu = summary.scalar('G_like_mu2', like_mu2.data[0])
-                self.summary_writer.add_summary(sum_mu, count)
-                sum_cov = summary.scalar('G_like_cov2', like_cov2.data[0])
-                self.summary_writer.add_summary(sum_cov, count)
-                if self.num_Ds > 2:
-                    sum_mu = summary.scalar('G_like_mu1', like_mu1.data[0])
-                    self.summary_writer.add_summary(sum_mu, count)
-                    sum_cov = summary.scalar('G_like_cov1', like_cov1.data[0])
-                    self.summary_writer.add_summary(sum_cov, count)
+                self.summary_writer.add_scalar('G_like_mu2', like_mu2, count)
+                self.summary_writer.add_scalar('G_like_cov2', like_cov2, count)
+                if self.num_Ds>2:
+                    self.summary_writer.add_scalar('G_like_mu1', like_mu1, count)
+                    self.summary_writer.add_scalar('G_like_cov1', like_cov1, count)
 
         errG_total.backward()
         self.optimizerG.step()
@@ -406,10 +394,9 @@ class GANTrainer(object):
                 predictions.append(pred.data.cpu().numpy())
 
                 if count % 100 == 0:
-                    summary_D = summary.scalar('D_loss', errD_total.data[0])
-                    summary_G = summary.scalar('G_loss', errG_total.data[0])
-                    self.summary_writer.add_summary(summary_D, count)
-                    self.summary_writer.add_summary(summary_G, count)
+                    self.summary_writer.add_scalar('D_loss', errD_total, count)
+                    self.summary_writer.add_scalar('G_loss', errG_total, count)
+                    
                 if step == 0:
                     print('''[%d/%d][%d/%d] Loss_D: %.2f Loss_G: %.2f'''
                            % (epoch, self.max_epoch, step, self.num_batches,
@@ -434,13 +421,11 @@ class GANTrainer(object):
                         predictions = np.concatenate(predictions, 0)
                         mean, std = compute_inception_score(predictions, 10)
                         # print('mean:', mean, 'std', std)
-                        m_incep = summary.scalar('Inception_mean', mean)
-                        self.summary_writer.add_summary(m_incep, count)
+                        self.summary_writer.add_scalar('Inception_mean', mean, count)
                         #
                         mean_nlpp, std_nlpp = \
                             negative_log_posterior_probability(predictions, 10)
-                        m_nlpp = summary.scalar('NLPP_mean', mean_nlpp)
-                        self.summary_writer.add_summary(m_nlpp, count)
+                        self.summary_writer.add_scalar('NLPP_mean', mean_nlpp, count)
                         #
                         predictions = []
 
@@ -507,7 +492,7 @@ class GANTrainer(object):
             netG.eval()
             num_batches = int(cfg.TEST.SAMPLE_NUM / self.batch_size)
             cnt = 0
-            for step in xrange(num_batches):
+            for step in range(num_batches):
                 noise.data.normal_(0, 1)
                 fake_imgs, _, _ = netG(noise)
                 if cfg.TEST.B_EXAMPLE:
@@ -529,7 +514,7 @@ class condGANTrainer(object):
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
             mkdir_p(self.log_dir)
-            self.summary_writer = FileWriter(self.log_dir)
+            self.summary_writer = SummaryWriter(self.log_dir)
 
         s_gpus = cfg.GPU_ID.split(',')
         self.gpus = [int(ix) for ix in s_gpus]
@@ -604,8 +589,15 @@ class condGANTrainer(object):
         optD.step()
         # log
         if flag == 0:
-            summary_D = summary.scalar('D_loss%d' % idx, errD.data[0])
-            self.summary_writer.add_summary(summary_D, count)
+            self.summary_writer.add_scalars(
+                main_tag="D_loss",
+                tag_scalar_dict={
+                    'D_loss{:d}'.format(idx):errD
+                },
+                global_step=count
+            )
+            #self.summary_writer.add_scalar('D_loss{:d}'.format(idx), errD, count)
+            
         return errD
 
     def train_Gnet(self, count):
@@ -624,8 +616,10 @@ class condGANTrainer(object):
                 errG = errG + errG_patch
             errG_total = errG_total + errG
             if flag == 0:
-                summary_D = summary.scalar('G_loss%d' % i, errG.data[0])
-                self.summary_writer.add_summary(summary_D, count)
+                self.summary_writer.add_scalars('G_loss', {
+                    'G_loss{:d}'.format(i):errG
+                }, count)
+                #self.summary_writer.add_scalar('G_loss{:d}'.format(i), errG, count)
 
         # Compute color consistency losses
         if cfg.TRAIN.COEFF.COLOR_LOSS > 0:
@@ -638,10 +632,9 @@ class condGANTrainer(object):
                     nn.MSELoss()(covariance1, covariance2)
                 errG_total = errG_total + like_mu2 + like_cov2
                 if flag == 0:
-                    sum_mu = summary.scalar('G_like_mu2', like_mu2.data[0])
-                    self.summary_writer.add_summary(sum_mu, count)
-                    sum_cov = summary.scalar('G_like_cov2', like_cov2.data[0])
-                    self.summary_writer.add_summary(sum_cov, count)
+                    self.summary_writer.add_scalar('G_like_mu2', like_mu2, count)
+                    self.summary_writer.add_scalar('G_like_cov2', like_cov2, count)
+                
             if self.num_Ds > 2:
                 mu1, covariance1 = compute_mean_covariance(self.fake_imgs[-2])
                 mu2, covariance2 = \
@@ -651,10 +644,8 @@ class condGANTrainer(object):
                     nn.MSELoss()(covariance1, covariance2)
                 errG_total = errG_total + like_mu1 + like_cov1
                 if flag == 0:
-                    sum_mu = summary.scalar('G_like_mu1', like_mu1.data[0])
-                    self.summary_writer.add_summary(sum_mu, count)
-                    sum_cov = summary.scalar('G_like_cov1', like_cov1.data[0])
-                    self.summary_writer.add_summary(sum_cov, count)
+                    self.summary_writer.add_scalar('G_like_mu1', like_mu1, count)
+                    self.summary_writer.add_scalar('G_like_cov1', like_cov1, count)
 
         kl_loss = KL_loss(mu, logvar) * cfg.TRAIN.COEFF.KL
         errG_total = errG_total + kl_loss
@@ -733,12 +724,9 @@ class condGANTrainer(object):
                 predictions.append(pred.data.cpu().numpy())
 
                 if count % 100 == 0:
-                    summary_D = summary.scalar('D_loss', errD_total.data[0])
-                    summary_G = summary.scalar('G_loss', errG_total.data[0])
-                    summary_KL = summary.scalar('KL_loss', kl_loss.data[0])
-                    self.summary_writer.add_summary(summary_D, count)
-                    self.summary_writer.add_summary(summary_G, count)
-                    self.summary_writer.add_summary(summary_KL, count)
+                    self.summary_writer.add_scalar('D_loss', errD_total, count)
+                    self.summary_writer.add_scalar('G_loss', errG_total, count)
+                    self.summary_writer.add_scalar('KL_loss', kl_loss, count)
 
                 count = count + 1
 
@@ -760,13 +748,11 @@ class condGANTrainer(object):
                         predictions = np.concatenate(predictions, 0)
                         mean, std = compute_inception_score(predictions, 10)
                         # print('mean:', mean, 'std', std)
-                        m_incep = summary.scalar('Inception_mean', mean)
-                        self.summary_writer.add_summary(m_incep, count)
+                        self.summary_writer.add_scalar('Inception_mean', mean, count)
                         #
                         mean_nlpp, std_nlpp = \
                             negative_log_posterior_probability(predictions, 10)
-                        m_nlpp = summary.scalar('NLPP_mean', mean_nlpp)
-                        self.summary_writer.add_summary(m_nlpp, count)
+                        self.summary_writer.add_scalar('NLPP_mean', mean_nlpp, count)
                         #
                         predictions = []
 
@@ -775,8 +761,8 @@ class condGANTrainer(object):
                          Loss_D: %.2f Loss_G: %.2f Loss_KL: %.2f Time: %.2fs
                       '''  # D(real): %.4f D(wrong):%.4f  D(fake) %.4f
                   % (epoch, self.max_epoch, self.num_batches,
-                     errD_total.data[0], errG_total.data[0],
-                     kl_loss.data[0], end_t - start_t))
+                     errD_total.cpu().item(), errG_total.cpu().item(),
+                     kl_loss.cpu().item(), end_t - start_t))
 
         save_model(self.netG, avg_param_G, self.netsD, count, self.model_dir)
         self.summary_writer.close()

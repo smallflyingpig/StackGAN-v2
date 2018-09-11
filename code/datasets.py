@@ -57,7 +57,7 @@ def get_imgs(img_path, imsize, bbox=None,
     ret = []
     for i in range(cfg.TREE.BRANCH_NUM):
         if i < (cfg.TREE.BRANCH_NUM - 1):
-            re_img = transforms.Scale(imsize[i])(img)
+            re_img = transforms.Resize(imsize[i])(img)
         else:
             re_img = img
         ret.append(normalize(re_img))
@@ -227,7 +227,7 @@ class TextDataset(data.Dataset):
         #
         filename_bbox = {img_file[:-4]: [] for img_file in filenames}
         numImgs = len(filenames)
-        for i in xrange(0, numImgs):
+        for i in range(0, numImgs):
             # bbox = [x-left, y-top, width, height]
             bbox = df_bounding_boxes.iloc[i][1:].tolist()
 
@@ -239,7 +239,7 @@ class TextDataset(data.Dataset):
     def load_all_captions(self):
         def load_captions(caption_name):  # self,
             cap_path = caption_name
-            with open(cap_path, "r") as f:
+            with open(cap_path, "rb") as f:
                 captions = f.read().decode('utf8').split('\n')
             captions = [cap.replace("\ufffd\ufffd", " ")
                         for cap in captions if len(cap) > 0]
@@ -261,7 +261,7 @@ class TextDataset(data.Dataset):
             embedding_filename = '/skip-thought-embeddings.pickle'
 
         with open(data_dir + embedding_filename, 'rb') as f:
-            embeddings = pickle.load(f)
+            embeddings = pickle.load(f, encoding="bytes")
             embeddings = np.array(embeddings)
             # embedding_shape = [embeddings.shape[-1]]
             print('embeddings: ', embeddings.shape)
@@ -270,7 +270,7 @@ class TextDataset(data.Dataset):
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
             with open(data_dir + '/class_info.pickle', 'rb') as f:
-                class_id = pickle.load(f)
+                class_id = pickle.load(f, encoding="bytes")
         else:
             class_id = np.arange(total_num)
         return class_id
@@ -278,7 +278,7 @@ class TextDataset(data.Dataset):
     def load_filenames(self, data_dir):
         filepath = os.path.join(data_dir, 'filenames.pickle')
         with open(filepath, 'rb') as f:
-            filenames = pickle.load(f)
+            filenames = pickle.load(f, encoding="bytes")
         print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
         return filenames
 
